@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "841295068737",
+    "project_id": "campus-dating-app-8e62d",
+    "storage_bucket": "campus-dating-app-8e62d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:841295068737:android:58c338f068942a706390c0",
+        "android_client_info": {
+          "package_name": "com.example.campus_dating_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "841295068737-dnuqgt19qtlrrdgm74dknka33ht0c5uh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.campus_dating_app",
+            "certificate_hash": "18b52d8b4bc61a45e245c5637db928b3dd9660fc"
+          }
+        },
+        {
+          "client_id": "841295068737-ie31d3cga9r9jbr4hue6n6gnrddof5ut.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyByirYNp06n10XhMphvWAfKrqKJiDUsZH0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "841295068737-ie31d3cga9r9jbr4hue6n6gnrddof5ut.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "841295068737-lr46gpl2rsr8meh3b6jou5c21hui8krn.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.campusDatingApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

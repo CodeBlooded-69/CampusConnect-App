@@ -1,0 +1,63 @@
+name: CampusConnect
+description: "A Campus Dating App with Ghost Mode, Buzz, and Swiping."
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # --- ANIMATIONS ---
+  lottie: ^3.1.0
+  # --- ICONS ---
+  cupertino_icons: ^1.0.6
+
+  # --- FIREBASE CORE & AUTH ---
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
+  firebase_storage: ^12.3.0
+
+  # --- GOOGLE SIGN IN ---
+  google_sign_in: ^6.2.1
+
+  # --- UI & FONTS ---
+  google_fonts: ^6.2.1
+  flutter_card_swiper: ^7.0.0
+  cached_network_image: ^3.4.1
+
+  # --- UTILITIES ---
+  image_picker: ^1.2.1
+  http: ^1.6.0 # For ImgBB upload
+  intl: ^0.19.0 # ADDED: Required for Chat Timestamps
+  shared_preferences: ^2.2.2
+
+  # Location (Optional - keep if you plan to use GPS later)
+  geolocator: ^13.0.1
+  geocoding: ^3.0.0
+  flutter_image_compress: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+  # --- ICON GENERATOR ---
+  flutter_launcher_icons: ^0.13.1
+
+# --- FLUTTER CONFIG ---
+flutter:
+  uses-material-design: true
+
+  # assets:
+  #   - assets/images/logo.png
+
+# --- APP ICON CONFIGURATION ---
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon.png" # Ensure this file exists in your assets folder!
+  min_sdk_android: 21
