@@ -7,7 +7,7 @@ import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lottie/lottie.dart';
 
-// --- IMPORTS ---
+// --- IMPORTS (Ensure these files exist in your project) ---
 import 'chat_screen.dart';
 import 'profile_detail_screen.dart';
 import 'edit_profile_screen.dart';
@@ -27,13 +27,46 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // --- THE 4 MAIN TABS ---
-  static final List<Widget> _widgetOptions = <Widget>[
-    const SwipeTab(), // 0: Swipe
-    const ExploreTab(), // 1: Explore
-    const ConfessionsScreen(), // 2: Buzz
-    const ProfileTab(), // 3: Profile
-  ];
+  // --- Campus Filter Variables ---
+  bool _isMyCampusOnly = false;
+  String? _myCampus;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchMyCampus();
+  }
+
+  Future<void> _fetchMyCampus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      if (doc.exists && mounted) {
+        setState(() {
+          _myCampus = doc.data()?['campus'];
+        });
+      }
+    }
+  }
+
+  // --- Dynamic Body Switcher ---
+  Widget _buildBody() {
+    switch (_selectedIndex) {
+      case 0:
+        return SwipeTab(isMyCampusOnly: _isMyCampusOnly, myCampus: _myCampus);
+      case 1:
+        return const ExploreTab();
+      case 2:
+        return const ConfessionsScreen();
+      case 3:
+        return const ProfileTab();
+      default:
+        return const SwipeTab();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,19 +75,55 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        // 🚀 FIXED: Always show title here
         title: Text(
           "CampusConnect",
           style: GoogleFonts.inter(
             fontWeight: FontWeight.bold,
             color: Colors.pink,
+            fontSize: 22,
           ),
         ),
+
+        // 🚀 FIXED: Always Center the Title
         centerTitle: true,
+
         backgroundColor: bgColor,
         elevation: 0,
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: false, // Hides default back button
+
         actions: [
-          // 1. Who Liked Me Button
+          // --- 1. My Campus Toggle (Only visible on Swipe Tab) ---
+          if (_selectedIndex == 0 && _myCampus != null) ...[
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _isMyCampusOnly ? "My Campus" : "All Unis",
+                  style: GoogleFonts.inter(
+                    color: Colors.black87,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(
+                  height: 25,
+                  child: Switch(
+                    value: _isMyCampusOnly,
+                    activeColor: const Color(0xFFFD297B),
+                    onChanged: (value) {
+                      setState(() {
+                        _isMyCampusOnly = value;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 10),
+          ],
+
+          // --- 2. Who Liked Me Button ---
           IconButton(
             icon: const Icon(
               Icons.favorite_border,
@@ -68,7 +137,8 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          // 2. Chat / Matches Button
+
+          // --- 3. Chat / Matches Button ---
           IconButton(
             icon: const Icon(Icons.forum_rounded, color: Colors.pink, size: 28),
             onPressed: () {
@@ -78,14 +148,14 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 5),
         ],
       ),
 
-      body: _widgetOptions.elementAt(_selectedIndex),
+      body: _buildBody(),
 
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed, // Required for 4+ items
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.style), label: 'Swipe'),
           BottomNavigationBarItem(
@@ -108,10 +178,13 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ==========================================
-// TAB 1: SWIPE (HERO + HAPTIC + CACHED)
+// TAB 1: SWIPE (Updated with Filter)
 // ==========================================
 class SwipeTab extends StatefulWidget {
-  const SwipeTab({super.key});
+  final bool isMyCampusOnly;
+  final String? myCampus;
+
+  const SwipeTab({super.key, this.isMyCampusOnly = false, this.myCampus});
 
   @override
   State<SwipeTab> createState() => _SwipeTabState();
@@ -120,7 +193,6 @@ class SwipeTab extends StatefulWidget {
 class _SwipeTabState extends State<SwipeTab> {
   final CardSwiperController _controller = CardSwiperController();
   final currentUser = FirebaseAuth.instance.currentUser;
-
   late Future<DocumentSnapshot> _userFuture;
 
   @override
@@ -132,13 +204,12 @@ class _SwipeTabState extends State<SwipeTab> {
         .get();
   }
 
+  // --- Logic for Swiping Right (Like) ---
   Future<void> _handleRightSwipe(
     Map<String, dynamic> targetUser,
     String targetUserId,
   ) async {
-    // 📳 INTERACTIVE: Vibrate on Like
     HapticFeedback.mediumImpact();
-
     final myId = currentUser!.uid;
     try {
       await FirebaseFirestore.instance
@@ -154,6 +225,7 @@ class _SwipeTabState extends State<SwipeTab> {
           .collection('likes')
           .doc(targetUserId)
           .get();
+
       if (likeCheck.exists) {
         _createMatchInDatabase(myId, targetUserId);
         _showMatchDialog(targetUser, targetUserId);
@@ -182,9 +254,7 @@ class _SwipeTabState extends State<SwipeTab> {
   }
 
   void _showMatchDialog(Map<String, dynamic> userData, String targetUserId) {
-    // 📳 INTERACTIVE: Heavy vibration for match!
     HapticFeedback.heavyImpact();
-
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -200,7 +270,6 @@ class _SwipeTabState extends State<SwipeTab> {
           content: Stack(
             alignment: Alignment.center,
             children: [
-              // 1. The Match Card
               Container(
                 padding: const EdgeInsets.all(25),
                 decoration: BoxDecoration(
@@ -209,11 +278,11 @@ class _SwipeTabState extends State<SwipeTab> {
                   ),
                   borderRadius: BorderRadius.circular(25),
                   border: Border.all(color: Colors.white, width: 3),
-                  boxShadow: [
+                  boxShadow: const [
                     BoxShadow(
                       color: Colors.black26,
                       blurRadius: 15,
-                      offset: const Offset(0, 8),
+                      offset: Offset(0, 8),
                     ),
                   ],
                 ),
@@ -230,7 +299,6 @@ class _SwipeTabState extends State<SwipeTab> {
                       ),
                     ),
                     const SizedBox(height: 20),
-
                     Container(
                       padding: const EdgeInsets.all(3),
                       decoration: const BoxDecoration(
@@ -242,7 +310,6 @@ class _SwipeTabState extends State<SwipeTab> {
                         backgroundImage: CachedNetworkImageProvider(matchImage),
                       ),
                     ),
-
                     const SizedBox(height: 15),
                     Text(
                       "You and ${userData['name']} dig each other!",
@@ -253,7 +320,6 @@ class _SwipeTabState extends State<SwipeTab> {
                       ),
                     ),
                     const SizedBox(height: 25),
-
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
@@ -297,11 +363,9 @@ class _SwipeTabState extends State<SwipeTab> {
                   ],
                 ),
               ),
-
-              // 2. ✨ INTERACTIVE: Lottie Confetti Animation
               IgnorePointer(
                 child: Lottie.network(
-                  'https://assets10.lottiefiles.com/packages/lf20_u4yrau.json', // Confetti JSON
+                  'https://assets10.lottiefiles.com/packages/lf20_u4yrau.json',
                   repeat: false,
                   fit: BoxFit.cover,
                 ),
@@ -318,10 +382,11 @@ class _SwipeTabState extends State<SwipeTab> {
     return FutureBuilder<DocumentSnapshot>(
       future: _userFuture,
       builder: (context, mySnapshot) {
-        if (!mySnapshot.hasData)
+        if (!mySnapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(color: Colors.pink),
           );
+        }
 
         Map<String, dynamic> myData =
             mySnapshot.data!.data() as Map<String, dynamic>;
@@ -332,26 +397,43 @@ class _SwipeTabState extends State<SwipeTab> {
         else if (myGender == 'Female')
           targetGender = 'Male';
 
+        // Base Query
         Query query = FirebaseFirestore.instance
             .collection('users')
             .where('isProfileComplete', isEqualTo: true);
-        if (targetGender != null)
+        if (targetGender != null) {
           query = query.where('gender', isEqualTo: targetGender);
+        }
 
         return StreamBuilder<QuerySnapshot>(
           stream: query.snapshots(),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting)
+            if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(
                 child: CircularProgressIndicator(color: Colors.pink),
               );
-            final users =
+            }
+
+            // --- FILTERING LOGIC ---
+            var docs =
                 snapshot.data?.docs
                     .where((doc) => doc.id != currentUser?.uid)
                     .toList() ??
                 [];
 
-            if (users.isEmpty) {
+            // Apply Campus Filter if toggle is ON
+            if (widget.isMyCampusOnly && widget.myCampus != null) {
+              docs = docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final userCampus =
+                    data['campus']?.toString().toLowerCase() ?? "";
+                final myCampus = widget.myCampus!.toLowerCase();
+                return userCampus == myCampus;
+              }).toList();
+            }
+
+            // --- EMPTY STATE ---
+            if (docs.isEmpty) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -359,50 +441,45 @@ class _SwipeTabState extends State<SwipeTab> {
                     const Icon(Icons.person_off, size: 80, color: Colors.grey),
                     const SizedBox(height: 10),
                     Text(
-                      "No profiles found!",
+                      widget.isMyCampusOnly
+                          ? "No one from ${widget.myCampus} yet!"
+                          : "No profiles found!",
                       style: GoogleFonts.inter(
                         fontSize: 18,
                         color: Colors.grey,
                       ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      targetGender != null
-                          ? "Showing only: $targetGender"
-                          : "No users yet.",
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               );
             }
 
+            // --- SWIPE CARDS ---
             return Column(
               children: [
                 Expanded(
                   child: CardSwiper(
                     controller: _controller,
-                    cardsCount: users.length,
-                    numberOfCardsDisplayed: users.length == 1 ? 1 : 2,
+                    cardsCount: docs.length,
+                    numberOfCardsDisplayed: docs.length == 1 ? 1 : 2,
                     allowedSwipeDirection: const AllowedSwipeDirection.all(),
                     onSwipe: (previousIndex, currentIndex, direction) {
-                      final userDoc = users[previousIndex];
-                      if (direction == CardSwiperDirection.right)
+                      final userDoc = docs[previousIndex];
+                      if (direction == CardSwiperDirection.right) {
                         _handleRightSwipe(
                           userDoc.data() as Map<String, dynamic>,
                           userDoc.id,
                         );
-                      if (direction == CardSwiperDirection.left)
+                      }
+                      if (direction == CardSwiperDirection.left) {
                         HapticFeedback.lightImpact();
+                      }
                       return true;
                     },
                     cardBuilder: (context, index, h, v) {
-                      final data = users[index].data() as Map<String, dynamic>;
-                      final userId =
-                          users[index].id; // Gets Doc ID for Hero Tag
+                      final data = docs[index].data() as Map<String, dynamic>;
+                      final userId = docs[index].id;
                       String image =
                           (data['imageUrls'] != null &&
                               data['imageUrls'].isNotEmpty)
@@ -411,7 +488,6 @@ class _SwipeTabState extends State<SwipeTab> {
 
                       return GestureDetector(
                         onTap: () {
-                          // PASS USER ID HERE
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -422,9 +498,8 @@ class _SwipeTabState extends State<SwipeTab> {
                             ),
                           );
                         },
-                        // --- HERO ANIMATION START ---
                         child: Hero(
-                          tag: userId, // Match this tag in Detail Screen
+                          tag: userId,
                           child: Material(
                             type: MaterialType.transparency,
                             child: Container(
@@ -506,7 +581,6 @@ class _SwipeTabState extends State<SwipeTab> {
                             ),
                           ),
                         ),
-                        // --- HERO ANIMATION END ---
                       );
                     },
                   ),
@@ -561,7 +635,7 @@ class _SwipeTabState extends State<SwipeTab> {
 }
 
 // ==========================================
-// TAB 2: EXPLORE (HERO + OPTIMIZED)
+// TAB 2: EXPLORE
 // ==========================================
 class ExploreTab extends StatelessWidget {
   const ExploreTab({super.key});
@@ -767,7 +841,7 @@ class ExploreTab extends StatelessWidget {
   }
 }
 
-// --- CATEGORY LIST SCREEN (HERO + OPTIMIZED) ---
+// --- CATEGORY LIST SCREEN ---
 class CategoryListScreen extends StatelessWidget {
   final String title;
   final String filterType;
@@ -802,6 +876,7 @@ class CategoryListScreen extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
+        centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
@@ -836,7 +911,6 @@ class CategoryListScreen extends StatelessWidget {
 
               return GestureDetector(
                 onTap: () {
-                  // PASS USER ID HERE
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -847,7 +921,6 @@ class CategoryListScreen extends StatelessWidget {
                     ),
                   );
                 },
-                // --- HERO ANIMATION START ---
                 child: Hero(
                   tag: users[index].id,
                   child: Material(
@@ -885,7 +958,6 @@ class CategoryListScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                // --- HERO ANIMATION END ---
               );
             },
           );
@@ -895,7 +967,7 @@ class CategoryListScreen extends StatelessWidget {
   }
 }
 
-// --- PROFILE TAB (OPTIMIZED) ---
+// --- PROFILE TAB ---
 class ProfileTab extends StatelessWidget {
   const ProfileTab({super.key});
   @override
@@ -923,7 +995,6 @@ class ProfileTab extends StatelessWidget {
             Center(
               child: CircleAvatar(
                 radius: 60,
-                // 🚀 OPTIMIZATION
                 backgroundImage: CachedNetworkImageProvider(image),
               ),
             ),

@@ -6,11 +6,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'quiz_screen.dart';
 import 'dart:io';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 
-// 2. USE THIS FIXED FUNCTION
+// --- COMPRESS FUNCTION ---
 Future<File> testCompressAndGetFile(File file, String targetPath) async {
   var result = await FlutterImageCompress.compressAndGetFile(
     file.absolute.path,
@@ -19,13 +20,7 @@ Future<File> testCompressAndGetFile(File file, String targetPath) async {
     minWidth: 1080,
     minHeight: 1080,
   );
-
-  // Safety Check: If compression fails, return the original file
-  if (result == null) {
-    return file;
-  }
-
-  // Convert XFile (from library) back to File (for Firebase)
+  if (result == null) return file;
   return File(result.path);
 }
 
@@ -40,21 +35,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _isLoading = true;
   bool _isUploading = false;
 
-  // ⚠️ PASTE YOUR API KEY HERE
   final String imgbbApiKey = "9d1f20d60ce3987573f040dd78b7bd7e";
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _majorController = TextEditingController();
   final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _campusController =
+      TextEditingController(); // NEW: For displaying selected campus
+
   final List<TextEditingController> _photoControllers = List.generate(
-    5,
+    6,
     (index) => TextEditingController(),
   );
 
   final List<String> _genderList = ["Male", "Female", "Other"];
   String? _selectedGender;
 
-  // --- INTERESTS DATA ---
   final List<String> _allInterests = [
     "Gamers",
     "Coders",
@@ -70,10 +66,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     "Techies",
     "Anime Fans",
     "Fitness",
+    "Designers",
+    "Entrepreneurs",
   ];
   List<String> _selectedInterests = [];
 
-  // --- PROMPT DATA ---
   final List<String> _availablePrompts = [
     "My simple pleasure is...",
     "I'm convinced that...",
@@ -89,6 +86,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String? _selectedPrompt2;
   final TextEditingController _answer2Controller = TextEditingController();
 
+  // --- FULL COLLEGE LIST ---
   final List<String> _collegeList = [
     "Acharya Institute of Technology",
     "A.C.S. College of Engineering",
@@ -248,13 +246,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     "BITS Pilani",
     "VIT Vellore",
     "Manipal Institute of Technology",
-    "Other",
+    "Siksha 'O' Anusandhan",
+    "Bangalore Medical College and Research Institute",
+    "Kalinga Institute of Medical Sciences"
+        "Other",
   ];
+
   String? _selectedCampus;
 
   @override
   void initState() {
     super.initState();
+    // Sort logic
     _collegeList.sort((a, b) {
       if (a == "Other") return 1;
       if (b == "Other") return -1;
@@ -285,24 +288,24 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             _selectedGender = data['gender'];
 
           String loadedCampus = data['campus'] ?? '';
-          if (_collegeList.contains(loadedCampus))
+          if (_collegeList.contains(loadedCampus)) {
             _selectedCampus = loadedCampus;
-          else if (loadedCampus.isNotEmpty) {
+            _campusController.text = loadedCampus;
+          } else if (loadedCampus.isNotEmpty) {
             _collegeList.insert(0, loadedCampus);
             _selectedCampus = loadedCampus;
+            _campusController.text = loadedCampus;
           }
 
           List<dynamic> existingPhotos = data['imageUrls'] ?? [];
           for (int i = 0; i < existingPhotos.length; i++) {
-            if (i < 5) _photoControllers[i].text = existingPhotos[i].toString();
+            if (i < 6) _photoControllers[i].text = existingPhotos[i].toString();
           }
 
-          // LOAD INTERESTS
           if (data['interests'] != null) {
             _selectedInterests = List<String>.from(data['interests']);
           }
 
-          // LOAD PROMPTS
           List<dynamic> prompts = data['prompts'] ?? [];
           if (prompts.isNotEmpty) {
             _selectedPrompt1 = prompts[0]['question'];
@@ -328,9 +331,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (image == null) return;
 
     setState(() => _isUploading = true);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Uploading...")));
 
     try {
       Uint8List imageBytes = await image.readAsBytes();
@@ -349,26 +349,279 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         setState(() {
           _photoControllers[index].text = uploadedUrl;
         });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Upload Successful!")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Photo added!"),
+            backgroundColor: Colors.green,
+          ),
+        );
       } else {
         throw Exception("Upload failed");
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+      );
     } finally {
       setState(() => _isUploading = false);
     }
   }
 
+  void _removeImage(int index) {
+    setState(() {
+      _photoControllers[index].clear();
+    });
+  }
+
+  // --- 🚀 NEW: SEARCHABLE CAMPUS PICKER ---
+  void _showCampusPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // Full height
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.8,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+              ),
+              padding: const EdgeInsets.all(20),
+              child: StatefulBuilder(
+                builder: (context, setModalState) {
+                  return Column(
+                    children: [
+                      // Handle Bar
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 20),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+
+                      // Search Bar
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: "Search your college...",
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: Colors.grey,
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[100],
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(15),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                          ),
+                        ),
+                        onChanged: (query) {
+                          setModalState(() {}); // Rebuild list locally
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      // List
+                      Expanded(
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemCount: _collegeList.length,
+                          itemBuilder: (context, index) {
+                            final collegeName = _collegeList[index];
+
+                            // Simple Search Filter
+                            // If search is empty OR college matches search query
+                            // We use a static variable inside this scope isn't ideal,
+                            // but accessing the TextField value is trickier without a controller.
+                            // Better approach: Filtering logic inside builder.
+
+                            // Let's assume we filter based on text field value?
+                            // Actually, let's just make the list filtered inside the builder.
+                            // Since we can't easily access the text value without a controller:
+                            // We will use a controller for the search bar!
+                            return _buildCollegeListItem(
+                              collegeName,
+                              scrollController,
+                              context,
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Helper for cleaner Search Logic
+  // We need to re-implement the Search Picker to properly filter
+  // The method above was a bit simplistic. Here is the ROBUST version.
+  void _openSearchableCampusSheet() {
+    TextEditingController searchController = TextEditingController();
+    List<String> filteredList = List.from(_collegeList);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 15),
+                  Container(
+                    width: 50,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextField(
+                      controller: searchController,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: "Search College...",
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: Color(0xFFFD297B),
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFFF5F7FA),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onChanged: (query) {
+                        // We need to update the UI of the Modal, not the main screen
+                        // So we can't use standard setState.
+                        // But since we are inside a builder, we need a StatefulBuilder.
+                        // However, to keep it simple, we will just use this pattern:
+                        (context as Element).markNeedsBuild();
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  Expanded(
+                    child: StatefulBuilder(
+                      builder: (context, setStateModal) {
+                        // Update filter logic
+                        searchController.addListener(() {
+                          if (searchController.text.isEmpty) {
+                            if (filteredList.length != _collegeList.length) {
+                              setStateModal(
+                                () => filteredList = List.from(_collegeList),
+                              );
+                            }
+                          } else {
+                            setStateModal(() {
+                              filteredList = _collegeList
+                                  .where(
+                                    (c) => c.toLowerCase().contains(
+                                      searchController.text.toLowerCase(),
+                                    ),
+                                  )
+                                  .toList();
+                            });
+                          }
+                        });
+
+                        return ListView.separated(
+                          controller: scrollController,
+                          padding: const EdgeInsets.all(20),
+                          itemCount: filteredList.length,
+                          separatorBuilder: (c, i) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final college = filteredList[index];
+                            final isSelected = college == _selectedCampus;
+
+                            return ListTile(
+                              title: Text(
+                                college,
+                                style: GoogleFonts.inter(
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isSelected
+                                      ? const Color(0xFFFD297B)
+                                      : Colors.black87,
+                                ),
+                              ),
+                              trailing: isSelected
+                                  ? const Icon(
+                                      Icons.check_circle,
+                                      color: Color(0xFFFD297B),
+                                    )
+                                  : null,
+                              onTap: () {
+                                setState(() {
+                                  _selectedCampus = college;
+                                  _campusController.text = college;
+                                });
+                                Navigator.pop(context);
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Placeholder for simple builder (not used in favor of _openSearchableCampusSheet)
+  Widget _buildCollegeListItem(
+    String name,
+    ScrollController sc,
+    BuildContext ctx,
+  ) {
+    return Container();
+  }
+
   Future<void> _saveProfile() async {
     if (_selectedCampus == null || _selectedGender == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Missing Required Fields")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select Gender and Campus"),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
 
@@ -404,7 +657,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       'bio': _bioController.text.trim(),
       'imageUrls': newPhotos,
       'prompts': promptsToSave,
-      'interests': _selectedInterests, // <--- SAVING INTERESTS
+      'interests': _selectedInterests,
       'isProfileComplete': true,
     });
 
@@ -414,9 +667,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading)
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFFFD297B)),
+        ),
+      );
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: Text(
           "Edit Profile",
@@ -427,285 +685,551 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
         backgroundColor: Colors.white,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.check, color: Colors.pink),
-            onPressed: _saveProfile,
+          Padding(
+            padding: const EdgeInsets.only(right: 15, top: 10, bottom: 10),
+            child: ElevatedButton(
+              onPressed: _saveProfile,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFD297B),
+                shape: const StadiumBorder(),
+                elevation: 0,
+              ),
+              child: const Text(
+                "Save",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Basic Info",
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 15),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildSectionTitle("Profile Photos"),
+                const SizedBox(height: 10),
+                _buildPhotoGrid(),
+                const SizedBox(height: 25),
 
-            _buildTextField("Full Name", _nameController),
-            const SizedBox(height: 15),
+                _buildSectionTitle("The Basics"),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: _cardDecoration(),
+                  child: Column(
+                    children: [
+                      _buildModernTextField(
+                        "Full Name",
+                        _nameController,
+                        Icons.person_outline,
+                      ),
+                      const SizedBox(height: 15),
+                      _buildModernDropdown(
+                        "Gender",
+                        _genderList,
+                        _selectedGender,
+                        (v) => setState(() => _selectedGender = v),
+                      ),
+                      const SizedBox(height: 15),
 
-            DropdownButtonFormField<String>(
-              value: _selectedGender,
-              items: _genderList
-                  .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedGender = v),
-              decoration: const InputDecoration(
-                labelText: "Gender",
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            DropdownButtonFormField<String>(
-              value: _selectedCampus,
-              isExpanded: true,
-              hint: const Text("Select Campus"),
-              items: _collegeList
-                  .map(
-                    (c) => DropdownMenuItem(
-                      value: c,
-                      child: Text(c, overflow: TextOverflow.ellipsis),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedCampus = v),
-              decoration: const InputDecoration(
-                labelText: "Campus",
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            _buildTextField("Major", _majorController),
-            const SizedBox(height: 15),
-            _buildTextField("Bio", _bioController, maxLines: 3),
-
-            const SizedBox(height: 30),
-
-            // --- INTERESTS SECTION ---
-            Text(
-              "Interests",
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.pink,
-              ),
-            ),
-            const SizedBox(height: 5),
-            const Text(
-              "Select tags that describe you.",
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 15),
-            Wrap(
-              spacing: 8.0,
-              runSpacing: 4.0,
-              children: _allInterests.map((interest) {
-                final isSelected = _selectedInterests.contains(interest);
-                return FilterChip(
-                  label: Text(interest),
-                  selected: isSelected,
-                  selectedColor: Colors.pink.shade100,
-                  checkmarkColor: Colors.pink,
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.pink : Colors.black,
-                  ),
-                  onSelected: (bool selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedInterests.add(interest);
-                      } else {
-                        _selectedInterests.remove(interest);
-                      }
-                    });
-                  },
-                );
-              }).toList(),
-            ),
-
-            const SizedBox(height: 30),
-
-            // --- CONVERSATION STARTERS ---
-            Text(
-              "Conversation Starters",
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.pink,
-              ),
-            ),
-            const SizedBox(height: 15),
-            DropdownButtonFormField<String>(
-              value: _selectedPrompt1,
-              isExpanded: true,
-              hint: const Text("Select Prompt 1"),
-              items: _availablePrompts
-                  .map(
-                    (p) => DropdownMenuItem(
-                      value: p,
-                      child: Text(p, style: const TextStyle(fontSize: 13)),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedPrompt1 = v),
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 10,
-                ),
-              ),
-            ),
-            const SizedBox(height: 5),
-            _buildTextField("Your Answer...", _answer1Controller),
-            const SizedBox(height: 20),
-            DropdownButtonFormField<String>(
-              value: _selectedPrompt2,
-              isExpanded: true,
-              hint: const Text("Select Prompt 2"),
-              items: _availablePrompts
-                  .map(
-                    (p) => DropdownMenuItem(
-                      value: p,
-                      child: Text(p, style: const TextStyle(fontSize: 13)),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedPrompt2 = v),
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 10,
-                ),
-              ),
-            ),
-            const SizedBox(height: 5),
-            _buildTextField("Your Answer...", _answer2Controller),
-
-            // --- ADD THIS BLOCK BEFORE "Profile Photos" ---
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: Colors.purple.shade50,
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: Colors.purple.shade100),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.bolt, color: Colors.purple, size: 30),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Compatibility Quiz",
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                      // 🚀 MODIFIED: Campus Picker Trigger
+                      GestureDetector(
+                        onTap: _openSearchableCampusSheet,
+                        child: AbsorbPointer(
+                          // Prevents keyboard from opening
+                          child: TextFormField(
+                            controller: _campusController,
+                            decoration: InputDecoration(
+                              labelText: "Campus",
+                              prefixIcon: const Icon(
+                                Icons.school_outlined,
+                                color: Colors.grey,
+                                size: 20,
+                              ),
+                              suffixIcon: const Icon(
+                                Icons.arrow_drop_down,
+                                color: Colors.grey,
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[50],
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color: Colors.grey.shade200,
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                            ),
                           ),
                         ),
-                        const Text(
-                          "Answer 5 questions to see Match %",
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
+                      ),
+
+                      const SizedBox(height: 15),
+                      _buildModernTextField(
+                        "Major",
+                        _majorController,
+                        Icons.school_outlined,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 25),
+
+                _buildSectionTitle("About Me"),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: _cardDecoration(),
+                  child: TextField(
+                    controller: _bioController,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText: "Write a short bio about yourself...",
+                      border: InputBorder.none,
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                      contentPadding: const EdgeInsets.all(15),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFFD297B)),
+                      ),
                     ),
                   ),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const QuizScreen(),
+                ),
+                const SizedBox(height: 25),
+
+                // Quiz Section
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFD297B), Color(0xFFFF655B)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFD297B).withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const QuizScreen(),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(20),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.bolt_rounded,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(width: 15),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "Compatibility Quiz",
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "Answer 5 questions to improve matching",
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white.withOpacity(0.9),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.arrow_forward_ios,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 25),
+
+                _buildSectionTitle("My Interests"),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: _cardDecoration(),
+                  child: Wrap(
+                    spacing: 8.0,
+                    runSpacing: 8.0,
+                    children: _allInterests.map((interest) {
+                      final isSelected = _selectedInterests.contains(interest);
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        child: FilterChip(
+                          label: Text(interest),
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : Colors.grey[700],
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                          selected: isSelected,
+                          backgroundColor: Colors.grey[100],
+                          selectedColor: const Color(0xFFFD297B),
+                          checkmarkColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? Colors.transparent
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          onSelected: (bool selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedInterests.add(interest);
+                              } else {
+                                _selectedInterests.remove(interest);
+                              }
+                            });
+                          },
                         ),
                       );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      shape: const StadiumBorder(),
-                    ),
-                    child: const Text(
-                      "Take Quiz",
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 30),
-
-            // --- END OF NEW BLOCK ---
-            const SizedBox(height: 30),
-            Text(
-              "Profile Photos",
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            ...List.generate(5, (index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: TextField(
-                  controller: _photoControllers[index],
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    labelText: "Photo ${index + 1}",
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.cloud_upload, color: Colors.pink),
-                      onPressed: () => _pickAndUploadImage(index),
-                    ),
+                    }).toList(),
                   ),
                 ),
-              );
-            }),
+                const SizedBox(height: 25),
 
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _saveProfile,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.pink),
-                child: const Text(
-                  "Save Changes",
-                  style: TextStyle(color: Colors.white, fontSize: 16),
+                _buildSectionTitle("Conversation Starters"),
+                const SizedBox(height: 10),
+                _buildPromptCard(
+                  1,
+                  _selectedPrompt1,
+                  _answer1Controller,
+                  (v) => setState(() => _selectedPrompt1 = v),
                 ),
+                const SizedBox(height: 15),
+                _buildPromptCard(
+                  2,
+                  _selectedPrompt2,
+                  _answer2Controller,
+                  (v) => setState(() => _selectedPrompt2 = v),
+                ),
+              ],
+            ),
+          ),
+
+          if (_isUploading)
+            Container(
+              color: Colors.black54,
+              child: const Center(
+                child: CircularProgressIndicator(color: Color(0xFFFD297B)),
               ),
             ),
-          ],
+        ],
+      ),
+    );
+  }
+
+  // --- WIDGET BUILDERS ---
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: GoogleFonts.inter(
+        fontSize: 18,
+        fontWeight: FontWeight.w800,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildPhotoGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.8,
+      ),
+      itemCount: 6,
+      itemBuilder: (context, index) {
+        String url = _photoControllers[index].text;
+        bool hasImage = url.isNotEmpty;
+
+        return GestureDetector(
+          onTap: () => hasImage ? null : _pickAndUploadImage(index),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasImage ? Colors.transparent : Colors.grey.shade300,
+                width: 2,
+              ),
+              image: hasImage
+                  ? DecorationImage(
+                      image: CachedNetworkImageProvider(url),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: Stack(
+              children: [
+                if (!hasImage)
+                  Center(
+                    child: Icon(
+                      Icons.add_a_photo_rounded,
+                      color: Colors.grey.shade400,
+                      size: 28,
+                    ),
+                  ),
+                if (hasImage)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: GestureDetector(
+                      onTap: () => _removeImage(index),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 14,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (hasImage)
+                  Positioned(
+                    bottom: 4,
+                    right: 4,
+                    child: GestureDetector(
+                      onTap: () => _pickAndUploadImage(index),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.edit,
+                          size: 12,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildModernTextField(
+    String label,
+    TextEditingController controller,
+    IconData icon,
+  ) {
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.grey.shade500, size: 20),
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFFD297B), width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
         ),
       ),
     );
   }
 
-  Widget _buildTextField(
+  Widget _buildModernDropdown(
     String label,
-    TextEditingController controller, {
-    int maxLines = 1,
-  }) {
-    return TextFormField(
-      controller: controller,
-      maxLines: maxLines,
+    List<String> items,
+    String? value,
+    Function(String?) onChanged,
+  ) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      isExpanded: true,
+      items: items
+          .map(
+            (e) => DropdownMenuItem(
+              value: e,
+              child: Text(e, overflow: TextOverflow.ellipsis),
+            ),
+          )
+          .toList(),
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
-        border: const OutlineInputBorder(),
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
       ),
+    );
+  }
+
+  Widget _buildPromptCard(
+    int index,
+    String? selectedPrompt,
+    TextEditingController controller,
+    Function(String?) onPromptChanged,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFD297B).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  "Prompt $index",
+                  style: const TextStyle(
+                    color: Color(0xFFFD297B),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: selectedPrompt,
+              isExpanded: true,
+              hint: const Text("Select a question..."),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded),
+              items: _availablePrompts
+                  .map(
+                    (p) => DropdownMenuItem(
+                      value: p,
+                      child: Text(
+                        p,
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: onPromptChanged,
+            ),
+          ),
+          const Divider(),
+          TextField(
+            controller: controller,
+            maxLines: 2,
+            minLines: 1,
+            decoration: const InputDecoration(
+              hintText: "Type your answer here...",
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.04),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
     );
   }
 }
